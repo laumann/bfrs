@@ -158,7 +158,7 @@ fn run(mut instrs: Vec<Inst>) {
                 state.ptr += 1;
                 let len = state.cells.len();
                 if state.ptr >= len {
-                    state.cells.resize(if len == 0 { 2 } else { len << 1 }, 0);
+                    state.cells.resize(len << 1, 0);
                 }
             }
             Prev => {
