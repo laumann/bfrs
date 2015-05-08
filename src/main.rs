@@ -7,9 +7,8 @@
 #![feature(collections)]
 #![feature(core)]
 use std::env;
-use std::io;
 use std::fs::File;
-use std::io::{Write, Read, Bytes, Result};
+use std::io::{Read, Bytes, Result};
 use std::num::wrapping::OverflowingOps;
 
 // Each operation (read stdin, or ',' is omitted for now
@@ -23,25 +22,31 @@ enum Op {
     JmpBck  // ]
 }
 
+#[derive(Clone, Debug)]
+enum Inst {
+    Inc,
+    Dec,
+    Next,
+    Prev,
+    Out,
+    Loop(Vec<Inst>)
+}
+
 // The state during computation
 struct State {
-    stack: Vec<Vec<Op>>,
     cells: Vec<u8>,
     ptr: usize,
-    skipping: bool
 }
 
 impl State {
     fn new() -> State {
         State {
-            stack: Vec::new(),
             cells: {
                 let mut v = Vec::new();
                 v.resize(1024, 0);
                 v
             },
             ptr: 0,
-            skipping: false
         }
     }
 }
@@ -84,59 +89,94 @@ impl<R: Read> Iterator for Commands<R> {
     }
 }
 
-fn run<I: Read>(input: I) {
+fn parse<I: Read>(input: I) -> Vec<Inst> {
     use Op::*;
-    let mut state = State::new();
     let commands = Commands { bytes: input.bytes() };
+    let mut v = Vec::new();
+    v.push(Vec::new());
 
-    println!("Initial state:\n{:?}", state.cells);
-    for c in commands {
-        match c {
-            Ok(cmd) => match cmd {
-                Inc => {
-                    state.cells[state.ptr] = state.cells[state.ptr].overflowing_add(1).0;
-                }
-                Dec => {
-                    state.cells[state.ptr] = state.cells[state.ptr].overflowing_sub(1).0;
-                }
-                Next => {
-                    state.ptr += 1;
-                    let len = state.cells.len();
-                    if state.ptr >= len {
-                        state.cells.resize(if len == 0 { 2 } else { len << 1 }, 0);
-                    }
-                }
-                Prev => {
-                    if state.ptr > 0 {
-                        state.ptr -= 1;
-                    }
-                }
-                Out => {
-                    let b = state.cells[state.ptr];
-                    let _ = io::stdout().write(&[b]);
-                }
-                JmpFwd => {
-                    if state.cells[state.ptr] == 0 {
-                        state.skipping = true;
-                    } else {
-                        // ...
-                    }
-                }
-                JmpBck => {
-                    if state.skipping {
-                        state.skipping = false
-                    } else {
+    let mut tos = 0;
 
+    for cmd in commands {
+        match cmd {
+            Ok(c) => {
+                match c {
+                    Inc => {
+                        v[tos].push(Inst::Inc);
+                    },
+                    Dec => {
+                        v[tos].push(Inst::Dec);
+                    },
+                    Next => {
+                        v[tos].push(Inst::Next);
+                    },
+                    Prev => {
+                        v[tos].push(Inst::Prev);
+                    },
+                    Out => {
+                        v[tos].push(Inst::Out);
+                    }
+                    JmpFwd => {
+                        v.push(Vec::new());
+                        tos += 1;
+                    },
+                    JmpBck => {
+                        if tos == 0 {
+                            panic!("Unmatched closing loop!");
+                        }
+                        let mut body = v.remove(tos);
+                        body.reverse();
+                        tos -= 1;
+                        v[tos].push(Inst::Loop(body));
                     }
                 }
-            },
+            }
             Err(e) => {
-                println!("{}", e);
-                return
+                panic!("{}", e);
             }
         }
     }
-    println!("Final state:\n{:?}", state.cells);
+
+    let mut instrs = v.pop().unwrap();
+    instrs.reverse();
+    instrs
+}
+
+fn run(mut instrs: Vec<Inst>) {
+    use Inst::*;
+    let mut state = State::new();
+
+    while !instrs.is_empty() {
+        match instrs.pop().unwrap() {
+            Inc => {
+                state.cells[state.ptr] = state.cells[state.ptr].overflowing_add(1).0;
+            }
+            Dec => {
+                state.cells[state.ptr] = state.cells[state.ptr].overflowing_sub(1).0;
+            }
+            Next => {
+                state.ptr += 1;
+                let len = state.cells.len();
+                if state.ptr >= len {
+                    state.cells.resize(if len == 0 { 2 } else { len << 1 }, 0);
+                }
+            }
+            Prev => {
+                if state.ptr > 0 {
+                    state.ptr -= 1;
+                }
+            }
+            Out => {
+                print!("{}", state.cells[state.ptr] as char);
+            }
+            Loop(mut body) => {
+                if state.cells[state.ptr] != 0 {
+                    instrs.push(Loop(body.clone()));
+                    instrs.append(&mut body);
+                }
+            }
+        }
+    }
 }
 
 fn usage() {}
@@ -157,5 +197,5 @@ fn main() {
         }
     };
 
-    run(file);
+    run(parse(file));
 }
