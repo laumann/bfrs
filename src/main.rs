@@ -179,7 +179,12 @@ fn run(mut instrs: Vec<Inst>) {
     }
 }
 
-fn usage() {}
+fn usage() {
+    println!("usage: bfrs <file.bf>");
+    println!("");
+    println!("A brainf*ck interpreter written in Rust");
+
+}
 
 fn main() {
     let args: Vec<_> = env::args().skip(1).collect();
